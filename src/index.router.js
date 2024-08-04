@@ -21,6 +21,9 @@ const initApp = (app, express) => {
   }
   app.use(express.json({}));
   //Setup API Routing
+  app.get("/", (req, res, next) => {
+   return res.status(200).send("Welcome in my E-commerce project");
+  });
   app.use(`/auth`, authRouter);
   app.use(`/user`, userRouter);
   app.use(`/product`, productRouter);
