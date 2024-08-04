@@ -13,6 +13,13 @@ import userRouter from "./modules/user/user.router.js";
 import { globalErrorHandling } from "./utils/errorHandling.js";
 
 const initApp = (app, express) => {
+  app.use((req, res, next) => {
+    if (req.originalUrl === "/order/webhook") {
+      next();
+    } else {
+      express.json({})(req, res, next);
+    }
+  });
   //convert Buffer Data
   if (process.env.MOOD == "DEV") {
     app.use(morgan("dev"));
@@ -22,7 +29,7 @@ const initApp = (app, express) => {
   app.use(express.json({}));
   //Setup API Routing
   app.get("/", (req, res, next) => {
-   return res.status(200).send("Welcome in my E-commerce project");
+    return res.status(200).send("Welcome in my E-commerce project");
   });
   app.use(`/auth`, authRouter);
   app.use(`/user`, userRouter);

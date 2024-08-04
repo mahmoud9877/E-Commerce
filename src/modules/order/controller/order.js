@@ -4,6 +4,7 @@ import productModel from "../../../../DB/model/Product.Model.js";
 import orderModel from "../../../../DB/model/Order.Model.js";
 import payment from "../../../utils/payment.js";
 import cartModel from "../../../../DB/model/Cart.Model.js";
+import Stripe from "stripe";
 
 export const createOrder = asyncHandler(async (req, res, next) => {
   const { address, phone, couponName, note, paymentType } = req.body;
@@ -130,49 +131,26 @@ export const createOrder = asyncHandler(async (req, res, next) => {
 });
 
 export const webhook = asyncHandler(async (req, res, next) => {
-  express.raw({ type: "application/json" }),
-    (req, res, next) => {
-      const sig = req.headers["stripe-signature"];
-
-      let event;
-
-      try {
-        event = stripe.webhooks.constructEvent(
-          req.body,
-          sig,
-          process.env.endpointSecret
-        );
-      } catch (err) {
-        res.status(400).send(`Webhook Error: ${err.message}`);
-        return;
-      }
-      const { orderId } = event.data.object.metadata;
-      // Handle the event
-      switch (event.type) {
-        case "checkout.session.async_payment_failed":
-          const checkoutSessionAsyncPaymentFailed = event.data.object;
-          // Then define and call a function to handle the event checkout.session.async_payment_failed
-          break;
-        case "checkout.session.async_payment_succeeded":
-          const checkoutSessionAsyncPaymentSucceeded = event.data.object;
-          // Then define and call a function to handle the event checkout.session.async_payment_succeeded
-          break;
-        case "checkout.session.completed":
-          const checkoutSessionCompleted = event.data.object;
-          // Then define and call a function to handle the event checkout.session.completed
-          break;
-        case "checkout.session.expired":
-          const checkoutSessionExpired = event.data.object;
-          // Then define and call a function to handle the event checkout.session.expired
-          break;
-        // ... handle other event types
-        default:
-          console.log(`Unhandled event type ${event.type}`);
-      }
-
-      // Return a 200 response to acknowledge receipt of the event
-      res.send();
-    };
+  const stripe = new Stripe(process.env.Secret_Key);
+  const sig = req.headers["stripe-signature"];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.endpointSecret
+    );
+  } catch (err) {
+    res.status(400).send(`Webhook Error: ${err.message}`);
+    return;
+  }
+  const { orderId } = event.data.object.metadata;
+  if (event.type != "checkout.session.completed") {
+    await orderModel.updateOne({ _id: orderId }, { status: "rejected" });
+    return res.json({ message: "rejected link" });
+  }
+  await orderModel.updateOne({ _id: orderId }, { status: "placed" });
+  return res.json({ message: "Done" });
 });
 
 export const cancelOrder = asyncHandler(async (req, res, next) => {
