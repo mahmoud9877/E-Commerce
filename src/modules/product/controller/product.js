@@ -20,8 +20,9 @@ export const getProducts = asyncHandler(async (req, res, next) => {
     .select()
     .search();
   const productList = await apiFeature.mongooseQuery;
-  return res.status(201).json({ message: "Done", productList });
+  return res.status(200).json({ message: "Done", productList });
 });
+
 export const createProduct = asyncHandler(async (req, res, next) => {
   const { name, price, discount, categoryId, subcategoryId, brandId } =
     req.body;

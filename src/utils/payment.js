@@ -19,7 +19,7 @@ async function payment({
     cancel_url,
     success_url,
     line_items,
-    discounts: [], // Note: use 'discounts' instead of 'discount'
+    discounts, // Note: use 'discounts' instead of 'discount'
   });
 
   return session;

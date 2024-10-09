@@ -17,7 +17,6 @@ router.post(
     { name: "mainImage", maxCount: 1 },
     { name: "subImages", maxCount: 5 },
   ]),
-
   productController.createProduct
 );
 

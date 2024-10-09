@@ -5,6 +5,7 @@ import * as validators from "./auth.validation.js";
 
 const router = Router();
 router.get("/", authController.getUser);
+
 router.post("/signup", validation(validators.signup), authController.signup);
 router.get(
   "/confirmEmail/:token",

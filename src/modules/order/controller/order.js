@@ -18,16 +18,13 @@ export const createOrder = asyncHandler(async (req, res, next) => {
 
   let coupon;
   if (couponName) {
-    // Fetch the coupon and validate it
     coupon = await couponModel.findOne({
       name: couponName.toLowerCase(),
-      usedBy: { $nin: userId },
     });
 
     if (!coupon || !coupon.expire || coupon.expire.getTime() < Date.now()) {
       return next(new Error("Invalid or expired coupon", { cause: 400 }));
     }
-
     req.body.coupon = coupon; // Store the coupon in req.body if needed later
   }
 
@@ -35,26 +32,30 @@ export const createOrder = asyncHandler(async (req, res, next) => {
   const finalProductList = [];
   let subtotal = 0;
 
-  for (let product of cart.products) {
-    const checkProduct = await productModel.findOne({
-      _id: product.productId,
-      stock: { $gte: product.quantity },
-      isDeleted: false,
-    });
+  try {
+    for (let product of cart.products) {
+      const checkProduct = await productModel.findOne({
+        _id: product.productId,
+        stock: { $gte: product.quantity },
+        isDeleted: false,
+      });
 
-    if (!checkProduct) {
-      return next(
-        new Error(`Invalid Product ${product.productId}`, { cause: 400 })
-      );
+      if (!checkProduct) {
+        return next(
+          new Error(`Invalid Product ${product.productId}`, { cause: 400 })
+        );
+      }
+
+      productIds.push(product.productId);
+      product = product.toObject();
+      product.name = checkProduct.name;
+      product.unitPrice = checkProduct.finalPrice;
+      product.finalPrice = product.unitPrice * product.quantity;
+      finalProductList.push(product);
+      subtotal += product.finalPrice;
     }
-
-    productIds.push(product.productId);
-    product = product.toObject();
-    product.name = checkProduct.name;
-    product.unitPrice = checkProduct.finalPrice;
-    product.finalPrice = product.unitPrice * product.quantity;
-    finalProductList.push(product);
-    subtotal += product.finalPrice;
+  } catch (error) {
+    return next(new Error("Product validation failed", { cause: 500 }));
   }
 
   const finalPrice = coupon
@@ -62,58 +63,84 @@ export const createOrder = asyncHandler(async (req, res, next) => {
     : subtotal;
 
   // Create the order
-  const order = await orderModel.create({
-    userId,
-    address,
-    note,
-    phone,
-    products: finalProductList,
-    couponId: coupon?._id,
-    subtotal,
-    finalPrice,
-    paymentType,
-    status: paymentType === "card" ? "waitPayment" : "placed",
-  });
+  let order;
+  try {
+    order = await orderModel.create({
+      userId,
+      address,
+      note,
+      phone,
+      products: finalProductList,
+      couponId: coupon?._id,
+      subtotal,
+      finalPrice,
+      paymentType,
+      status: paymentType === "card" ? "waitPayment" : "placed",
+    });
+  } catch (error) {
+    return next(new Error("Order creation failed", { cause: 500 }));
+  }
 
   // Update product stock
-  for (let product of cart.products) {
-    await productModel.updateOne(
-      { _id: product.productId },
-      { $inc: { stock: -parseInt(product.quantity) } }
-    );
+  try {
+    for (let product of cart.products) {
+      await productModel.updateOne(
+        { _id: product.productId },
+        { $inc: { stock: -parseInt(product.quantity) } }
+      );
+    }
+  } catch (error) {
+    return next(new Error("Stock update failed", { cause: 500 }));
   }
 
   // Mark coupon as used
   if (coupon) {
-    await couponModel.updateOne(
-      { _id: coupon._id },
-      { $addToSet: { usedBy: userId } }
-    );
+    try {
+      await couponModel.updateOne(
+        { _id: coupon._id },
+        { $addToSet: { usedBy: userId } }
+      );
+    } catch (error) {
+      return next(new Error("Coupon update failed", { cause: 500 }));
+    }
   }
 
   // Remove products from cart
-  await cartModel.updateOne(
-    { userId },
-    {
-      $pull: {
-        products: {
-          productId: { $in: productIds },
+  try {
+    await cartModel.updateOne(
+      { userId },
+      {
+        $pull: {
+          products: {
+            productId: { $in: productIds },
+          },
         },
-      },
-    }
-  );
+      }
+    );
+  } catch (error) {
+    return next(new Error("Cart update failed", { cause: 500 }));
+  }
 
   if (order.paymentType === "card") {
-    const session = await payment({
-      customer_email: req.user.email,
-      metadata: {
-        orderId: order._id.toString(),
-      },
-      cancel_url: `${req.protocol}://${
-        req.headers.host
-      }/order/cancel?orderId=${order._id.toString()}`,
-      line_items: order.products.map((product) => {
-        return {
+    try {
+      const stripe = new Stripe(process.env.Secret_Key);
+      if (req.body.coupon) {
+        const stripeCoupon = await stripe.coupons.create({
+          percent_off: req.body.coupon.amount,
+          duration: "once",
+        });
+        req.body.couponId = stripeCoupon.id;
+      }
+      const session = await payment({
+        stripe,
+        customer_email: req.user.email,
+        metadata: {
+          orderId: order._id.toString(),
+        },
+        cancel_url: `${req.protocol}://${
+          req.headers.host
+        }/order/cancel?orderId=${order._id.toString()}`,
+        line_items: order.products.map((product) => ({
           price_data: {
             currency: "egp",
             product_data: {
@@ -122,11 +149,15 @@ export const createOrder = asyncHandler(async (req, res, next) => {
             unit_amount: product.unitPrice * 100,
           },
           quantity: product.quantity,
-        };
-      }),
-    });
-    return res.status(201).json({ message: "Done", order, session });
+        })),
+        discounts: req.body.couponId ? [{ coupon: req.body.couponId }] : [],
+      });
+      return res.status(201).json({ message: "Done", order, session });
+    } catch (error) {
+      return next(new Error("Stripe session creation failed", { cause: 500 }));
+    }
   }
+
   return res.status(201).json({ message: "Order created successfully", order });
 });
 
