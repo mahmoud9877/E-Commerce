@@ -160,21 +160,13 @@ export const login = asyncHandler(async (req, res, next) => {
     return next(new Error("In-Valid Login", { cause: 404 }));
   }
 
-  const access_token = generateToken({
-    payload: { id: user._id, userName: user.userName },
-    expiresIn: 30 * 60,
-  });
-
-  const refresh_token = generateToken({
+  const token = generateToken({
     payload: { id: user._id, userName: user.userName },
     expiresIn: 30 * 60 * 24 * 365,
   });
-  const [userName] = user;
   user.status = "online";
   user.save();
-  return res
-    .status(201)
-    .json({ message: "Done", access_token, refresh_token, userName });
+  return res.status(201).json({ message: "Done", token });
 });
 
 export const sendCode = asyncHandler(async (req, res, next) => {
