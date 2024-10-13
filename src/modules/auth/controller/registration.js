@@ -159,8 +159,9 @@ export const login = asyncHandler(async (req, res, next) => {
   if (!compare({ plaintext: password, hashValue: user.password })) {
     return next(new Error("In-Valid Login", { cause: 404 }));
   }
+
   const access_token = generateToken({
-    payload: { id: user._id, role: user.role },
+    payload: { id: user._id, role: user.role, userName: user.userName },
     expiresIn: 30 * 60,
   });
 
