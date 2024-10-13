@@ -169,9 +169,12 @@ export const login = asyncHandler(async (req, res, next) => {
     payload: { id: user._id, userName: user.userName },
     expiresIn: 30 * 60 * 24 * 365,
   });
+  const [userName] = user;
   user.status = "online";
   user.save();
-  return res.status(201).json({ message: "Done", access_token, refresh_token });
+  return res
+    .status(201)
+    .json({ message: "Done", access_token, refresh_token, userName });
 });
 
 export const sendCode = asyncHandler(async (req, res, next) => {
