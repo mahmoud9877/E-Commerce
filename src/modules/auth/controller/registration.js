@@ -161,12 +161,12 @@ export const login = asyncHandler(async (req, res, next) => {
   }
 
   const access_token = generateToken({
-    payload: { id: user._id, role: user.role, userName: user.userName },
+    payload: { id: user._id, userName: user.userName },
     expiresIn: 30 * 60,
   });
 
   const refresh_token = generateToken({
-    payload: { id: user._id, role: user.role },
+    payload: { id: user._id, userName: user.userName },
     expiresIn: 30 * 60 * 24 * 365,
   });
   user.status = "online";
