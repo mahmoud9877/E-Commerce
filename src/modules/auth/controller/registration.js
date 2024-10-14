@@ -153,9 +153,9 @@ export const login = asyncHandler(async (req, res, next) => {
     return next(new Error("Email Not found", { cause: 404 }));
   }
 
-  if (!user.confirmEmail) {
-    return next(new Error("Confirm Your Email", { cause: 404 }));
-  }
+  // if (!user.confirmEmail) {
+  //   return next(new Error("Confirm Your Email", { cause: 404 }));
+  // }
   if (!compare({ plaintext: password, hashValue: user.password })) {
     return next(new Error("In-Valid Login", { cause: 404 }));
   }
@@ -166,7 +166,15 @@ export const login = asyncHandler(async (req, res, next) => {
   });
   user.status = "online";
   user.save();
-  return res.status(201).json({ message: "Done", token });
+  return res.status(200).json({
+    message: "Login successful",
+    token,
+    user: {
+      id: user._id,
+      userName: user.userName,
+      email: user.email,
+    },
+  });
 });
 
 export const sendCode = asyncHandler(async (req, res, next) => {
