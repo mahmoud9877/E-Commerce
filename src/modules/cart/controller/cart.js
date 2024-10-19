@@ -3,7 +3,7 @@ import productModel from "../../../../DB/model/Product.Model.js";
 import cartModel from "../../../../DB/model/Cart.Model.js";
 
 export const getCart = asyncHandler(async (req, res, next) => {
-  const cart = await cartModel.findOne({ userId: req.user._id });
+  const cart = await cartModel.find({});
 });
 // Add to cart handler
 export const addToCart = asyncHandler(async (req, res, next) => {
