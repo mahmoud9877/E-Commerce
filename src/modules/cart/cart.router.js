@@ -6,6 +6,7 @@ import { endpoint } from "./cart.endPoint.js";
 import { validation } from "../../middleware/validation.js";
 const router = Router();
 
+router.get("/", cartController.getCart);
 router.post("/", auth(endpoint.addToCart), cartController.addToCart);
 
 router.patch(
@@ -14,6 +15,5 @@ router.patch(
   validation(validators.deleteFromCart),
   cartController.deleteFromCart
 );
-
 
 export default router;
