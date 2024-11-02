@@ -1,14 +1,17 @@
-import * as dotenv from "dotenv";
-dotenv.config();
+import path from "path";
+import { fileURLToPath } from "url";
+import dotenv from "dotenv";
 import cloudinary from "cloudinary";
 
+// Get the correct path
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, "../../config/.env") });
+
+// Use the variables from .env to configure Cloudinary
 cloudinary.v2.config({
-  api_key: 666485453323836,
-  api_secret: "q2p2KwELWmlwOXERZqmVC4Jt9TU",
-  cloud_name: "ecommerce1911",
-  // api_key: process.env.API_KEY,
-  // api_secret: process.env.API_SECRET,
-  // cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+  cloud_name: process.env.CLOUD_NAME,
   secure: true,
 });
 

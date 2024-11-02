@@ -1,7 +1,7 @@
 import slugify from "slugify";
-import categoryModel from "../../../../DB/model/Category.Model.js";
 import cloudinary from "../../../utils/cloudinary.js";
 import { asyncHandler } from "../../../utils/errorHandling.js";
+import categoryModel from "../../../../DB/model/Category.Model.js";
 
 export const getCategories = asyncHandler(async (req, res, next) => {
   const categoryList = await categoryModel
