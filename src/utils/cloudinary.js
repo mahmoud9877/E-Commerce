@@ -1,6 +1,6 @@
 import path from "path";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import { fileURLToPath } from "url";
 import cloudinary from "cloudinary";
 
 // Get the correct path
