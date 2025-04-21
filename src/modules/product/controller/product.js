@@ -158,9 +158,6 @@ export const updateProduct = asyncHandler(async (req, res, next) => {
     { new: true }
   );
 
-  const filePath = "./Ecommerce.xlsx";
-  updateExcelSheet(filePath, productId, req.body);
-
   // updated product
   return res
     .status(201)
