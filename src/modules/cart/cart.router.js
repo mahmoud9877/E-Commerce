@@ -11,8 +11,6 @@ router.post("/", auth(endpoint.addToCart), cartController.addToCart);
 
 router.patch(
   "/:productId/remove",
-  auth(endpoint.deleteFromCart),
-  validation(validators.deleteFromCart),
   cartController.deleteFromCart
 );
 

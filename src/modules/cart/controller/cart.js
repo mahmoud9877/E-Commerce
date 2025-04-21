@@ -62,7 +62,7 @@ export async function deleteElementsFromCart(productIds, userId) {
 
 // Delete from cart handler
 export const deleteFromCart = asyncHandler(async (req, res, next) => {
-  const { productIds } = req.body;
+  const { productId } = req.params;
 
   if (!productIds || !productIds.length) {
     return next(new Error("No product IDs provided", { cause: 400 }));

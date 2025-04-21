@@ -26,7 +26,6 @@ const initApp = (app, express) => {
   };
 
   app.use(cors());
-
   app.use((req, res, next) => {
     if (req.originalUrl === "/order/webhook") {
       next();
