@@ -15,6 +15,6 @@ router.patch(
   cartController.deleteFromCart
 );
 
-router.delete("/deleteCart", auth(), cartController.clearCart);
+router.delete("/deleteCart", auth(endpoint.deleteFromCart), cartController.clearCart);
 
 export default router;
