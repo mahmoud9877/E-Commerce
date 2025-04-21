@@ -79,6 +79,21 @@ export const createProduct = asyncHandler(async (req, res, next) => {
   // Set createBy field
   req.body.createBy = req.user._id;
 
+  // Create product
+  const product = await productModel.create({
+    name: product.name,
+    price: product.price,
+    discount: product.discount,
+    finalPrice: product.finalPrice,
+    categoryId: product.categoryId,
+    subcategoryId: product.subcategoryId,
+    brandId: product.brandId,
+    customId: product.customId,
+    createdBy: product.createBy,
+  });
+
+ 
+
   return res
     .status(201)
     .json({ message: "Product created successfully", product });
