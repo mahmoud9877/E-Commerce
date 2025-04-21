@@ -68,7 +68,7 @@ export const deleteFromCart = asyncHandler(async (req, res, next) => {
     return next(new Error("No product IDs provided", { cause: 400 }));
   }
 
-  const cart = await deleteElementsFromCart(productIds, req.user._id);
+  const cart = await deleteElementsFromCart(productId, req.user._id);
 
   if (!cart) {
     return next(new Error("Failed to update cart", { cause: 500 }));
