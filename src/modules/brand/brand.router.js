@@ -12,7 +12,7 @@ router.get("/",
 
 router.post(
   "/",
-  auth(endpoint.create),
+  auth(endpoint.Admin),
   fileUpload(fileValidation.image).single("image"),
   validation(validators.createBrand),
   controllerBrand.createBrand
@@ -20,10 +20,17 @@ router.post(
 
 router.put(
   "/:brandId",
-  auth(endpoint.update),
+  auth(endpoint.Admin),
   fileUpload(fileValidation.image).single("image"),
   validation(validators.updateBrand),
   controllerBrand.updateBrand
 );
 
+
+router.delete(
+  "/",
+  auth(endpoint.Admin),
+  // validation(validators.updateBrand),
+  controllerBrand.deleteBrand
+);
 export default router;

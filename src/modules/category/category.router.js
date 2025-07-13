@@ -28,4 +28,11 @@ router.put(
   controllerCategory.updateCategory
 );
 
+router.delete(
+  "/",
+  auth(endpoint.create),
+  controllerCategory.deleteCategory
+);
+
+
 export default router;

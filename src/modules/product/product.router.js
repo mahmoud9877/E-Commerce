@@ -8,8 +8,9 @@ const router = Router();
 
 router.use("/:productId/review", reviewRouter);
 
-router.get("/", productController.getProducts);
-
+router.get("/",
+  productController.getProducts);
+  
 router.post(
   "/",
   auth(endpoint.create),

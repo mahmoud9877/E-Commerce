@@ -100,3 +100,16 @@ export const updateCategory = asyncHandler(async (req, res, next) => {
     updatedCategory,
   });
 });
+
+export const deleteCategory = asyncHandler(async (req, res, next) => {
+  const { categoryId } = req.body
+  if (!categoryId) {
+    return res.status(404).json({ message: 'Category Is Required' })
+  }
+  const findCategory = await categoryModel.findById({ _id: categoryId })
+  if (!findCategory) {
+    return res.status(404).json({ message: 'Category Not Found' })
+  }
+  await categoryModel.deleteOne({ _id: categoryId })
+  return res.status(200).json({message:'Category Deleted successively'})
+})

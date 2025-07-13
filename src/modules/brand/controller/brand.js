@@ -4,10 +4,7 @@ import cloudinary from "../../../utils/cloudinary.js";
 import { asyncHandler } from "../../../utils/errorHandling.js";
 
 export const getBrand = asyncHandler(async (req, res, next) => {
-  const brandList = await brandModel.find({
-    // isDeleted: false,
-  });
-
+  const brandList = await brandModel.find({});
   return res.status(201).json({ message: "Done", brandList });
 });
 
@@ -70,4 +67,17 @@ export const updateBrand = asyncHandler(async (req, res, next) => {
     message: "brand updated successfully",
     updateBrand,
   });
+});
+
+export const deleteBrand = asyncHandler(async (req, res, next) => {
+  const { brandId } = req.body;
+  if (!brandId) {
+    return res.status(400).json({ message: "brandId is required" });
+  }
+  const brand = await brandModel.findById(brandId);
+  if (!brand) {
+    return res.status(404).json({ message: "Brand not found" });
+  }
+  await brandModel.deleteOne({ _id: brandId });
+  return res.status(200).json({ message: "Brand deleted successfully" });
 });
