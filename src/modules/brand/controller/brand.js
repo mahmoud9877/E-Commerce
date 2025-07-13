@@ -5,7 +5,7 @@ import { asyncHandler } from "../../../utils/errorHandling.js";
 
 export const getBrand = asyncHandler(async (req, res, next) => {
   const brandList = await brandModel.find({
-    isDeleted: false,
+    // isDeleted: false,
   });
 
   return res.status(201).json({ message: "Done", brandList });

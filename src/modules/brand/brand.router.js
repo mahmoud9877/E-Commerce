@@ -7,7 +7,9 @@ import * as controllerBrand from "./controller/brand.js";
 import { endpoint } from "./brand.endPoint.js";
 const router = Router();
 
-router.get("/", controllerBrand.getBrand);
+router.get("/",
+  controllerBrand.getBrand);
+
 router.post(
   "/",
   auth(endpoint.create),
