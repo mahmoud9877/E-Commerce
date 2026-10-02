@@ -48,7 +48,7 @@ export class App {
 
   #registerRoutes(): void {
     this.app.get("/", (req, res) => {
-      res.status(200).send("Welcome to the E-commerce API");
+      res.status(200).send("Welcome to the E-commerchhhhe API");
     });
 
     for (const [path, router] of Object.entries(this.routes)) {
