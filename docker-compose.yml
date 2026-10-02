@@ -1,0 +1,47 @@
+# Local stack: API + MongoDB as a single-node replica set (order creation uses transactions,
+# which MongoDB only supports on a replica set).
+#   docker compose up --build
+#
+# App secrets come only from config/.env (never written here).
+# Compose settings below can be overridden from the shell or a root .env file; defaults are not secrets.
+services:
+  mongo:
+    image: mongo:${MONGO_VERSION:-7}
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      # Bound to localhost only: this database has no password and must not be reachable from the network
+      - "127.0.0.1:${MONGO_HOST_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiates the replica set on first boot, then just reports its status
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build: .
+    image: ecommerce-api:local
+    init: true
+    env_file:
+      - path: config/.env
+        required: false
+    environment:
+      # Points the API at the mongo container instead of the DB_LOCAL in config/.env
+      DB_LOCAL: ${DOCKER_DB_LOCAL:-mongodb://mongo:27017/ecommerce?replicaSet=rs0}
+      PORT: "5000"
+    ports:
+      - "${API_HOST_PORT:-5000}:5000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo-data:
