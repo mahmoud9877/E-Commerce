@@ -1,47 +1,132 @@
-# Local stack: API + MongoDB as a single-node replica set (order creation uses transactions,
-# which MongoDB only supports on a replica set).
+# Development stack: MongoDB (single-node replica set) -> backend (tsx watch) -> frontend (Vite HMR)
+#
+#   cp .env.example .env      # once; then fill in real values
 #   docker compose up --build
 #
-# App secrets come only from config/.env (never written here).
-# Compose settings below can be overridden from the shell or a root .env file; defaults are not secrets.
+#   Frontend  http://localhost:3000        (browser talks only to this origin; /api is proxied)
+#   Backend   http://localhost:5000        (direct access: Postman, Stripe CLI webhooks, emails)
+#   MongoDB   mongodb://localhost:27017/ecommerce?replicaSet=rs0&directConnection=true
+#
+# App configuration and secrets come from .env (env_file); nothing secret is written here.
+# Settings in ${...} are read by Compose from .env or the shell; their defaults are not secrets.
+# For the production-like stack see docker-compose.prod.yml.
+name: ecommerce
+
 services:
   mongo:
     image: mongo:${MONGO_VERSION:-7}
+    # Orders use multi-document transactions, which MongoDB only supports on a replica set
     command: ["--replSet", "rs0", "--bind_ip_all"]
+    restart: unless-stopped
     ports:
-      # Bound to localhost only: this database has no password and must not be reachable from the network
+      # Localhost only: this development database has no password
       - "127.0.0.1:${MONGO_HOST_PORT:-27017}:27017"
     volumes:
-      - mongo-data:/data/db
+      - mongo_data:/data/db
+    networks:
+      - db
     healthcheck:
-      # Initiates the replica set on first boot, then just reports its status
+      # Initiates the replica set on first boot (a no-op afterwards: the config lives in the volume),
+      # then only reports healthy once this node is the writable primary
       test:
         - CMD
         - mongosh
         - --quiet
         - --eval
-        - "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"
+        - "try { rs.status() } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }) } quit(db.hello().isWritablePrimary ? 0 : 1)"
       interval: 5s
       timeout: 10s
-      retries: 20
-      start_period: 10s
+      retries: 30
+      start_period: 20s
 
-  api:
-    build: .
-    image: ecommerce-api:local
+  backend:
+    build:
+      context: ./backend
+      target: development
+    image: ecommerce-backend:dev
     init: true
+    restart: unless-stopped
     env_file:
-      - path: config/.env
-        required: false
+      - path: .env
+        required: true
     environment:
-      # Points the API at the mongo container instead of the DB_LOCAL in config/.env
+      # Container-specific values; these win over the same keys in .env
       DB_LOCAL: ${DOCKER_DB_LOCAL:-mongodb://mongo:27017/ecommerce?replicaSet=rs0}
       PORT: "5000"
+      MOOD: DEV
+      FE_URL: http://localhost:${FRONTEND_PORT:-3000}
+      # Links in emails (e.g. confirm email) must point at a URL the browser can open
+      API_PUBLIC_URL: http://localhost:${BACKEND_PORT:-5000}
+      # File events do not cross Windows/WSL bind mounts; polling makes hot reload work everywhere
+      CHOKIDAR_USEPOLLING: ${WATCH_POLLING:-true}
     ports:
-      - "${API_HOST_PORT:-5000}:5000"
+      - "${BACKEND_PORT:-5000}:5000"
+    # Source only: node_modules stays the one installed in the image (Linux binaries)
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/tests:/app/tests
+      - ./backend/index.ts:/app/index.ts:ro
+      - ./backend/tsconfig.json:/app/tsconfig.json:ro
+      - ./backend/vitest.config.ts:/app/vitest.config.ts:ro
+    networks:
+      - web
+      - db
     depends_on:
       mongo:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      target: development
+    image: ecommerce-frontend:dev
+    init: true
+    restart: unless-stopped
+    # No env_file: the frontend container never sees backend secrets
+    environment:
+      # Server-side only: where the Vite dev server forwards /api (Docker DNS name, never sent to the browser)
+      API_PROXY_TARGET: http://backend:5000
+      # Same port inside and outside the container so the HMR websocket connects without extra config
+      VITE_DEV_PORT: ${FRONTEND_PORT:-3000}
+      WATCH_POLLING: ${WATCH_POLLING:-true}
+      VITE_API_BASE_URL: /api
+      VITE_BEARER_KEY: ${BEARER_KEY:-Bearer__}
+    ports:
+      - "${FRONTEND_PORT:-3000}:${FRONTEND_PORT:-3000}"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
+      - ./frontend/tsconfig.json:/app/tsconfig.json:ro
+    networks:
+      - web
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:$${VITE_DEV_PORT}/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+networks:
+  # frontend <-> backend
+  web:
+  # backend <-> mongo (the frontend has no route to the database)
+  db:
 
 volumes:
-  mongo-data:
+  # Survives `docker compose down`; removed only by `docker compose down -v`
+  mongo_data:

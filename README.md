@@ -1,317 +1,201 @@
-# E-Commerce API
+# E-Commerce
 
-A REST API for an online store, built with **Express**, **TypeScript** and **MongoDB**. It covers the full shopping flow: accounts and email verification, a catalog (categories, subcategories, brands, products), cart, coupons, orders with cash or Stripe card payment, wishlist and reviews.
-
----
-
-## Contents
-
-- [Features](#features)
-- [Tech stack](#tech-stack)
-- [Architecture](#architecture)
-- [Project structure](#project-structure)
-- [Getting started](#getting-started)
-- [Configuration](#configuration)
-- [API reference](#api-reference)
-- [Order and payment flow](#order-and-payment-flow)
-- [Conventions](#conventions)
-- [CI/CD](#cicd)
-
----
-
-## Features
-
-- **Accounts**: sign up, email confirmation (with resend), login, password reset by emailed code.
-- **Roles**: `User` (customer) and `Admin`. Catalog management and delivery updates are admin-only.
-- **Catalog**: categories → subcategories → products, plus brands. Images are stored on Cloudinary.
-- **Product listing**: filtering, full-text-style search, sorting, field selection and pagination.
-- **Cart**: add, update quantity, remove items, clear.
-- **Coupons**: percentage discounts with an expiry date.
-- **Orders**: cash on delivery or card through Stripe Checkout. Stock, coupon usage and the cart are updated in a single MongoDB transaction.
-- **Safe retries**: order creation accepts an `Idempotency-Key` header, so a double click or network retry never creates a second order.
-- **Stripe webhooks**: paid sessions place the order; expired sessions reject it and return the stock.
-- **Wishlist and reviews**: a user can review a product only after it was delivered to them, once per product.
-
-## Tech stack
-
-| Area | Choice |
-| --- | --- |
-| Runtime | Node.js 20, ES modules |
-| Language | TypeScript (strict) |
-| Web framework | Express 4 |
-| Database | MongoDB with Mongoose 6 (replica set required) |
-| Validation | Joi |
-| Auth | JWT (`jsonwebtoken`), passwords hashed with `bcryptjs` |
-| Payments | Stripe Checkout + webhooks |
-| File uploads | Multer → Cloudinary |
-| Email | Nodemailer (Gmail) |
-| Packaging | Docker, Docker Compose |
-| CI/CD | GitHub Actions → GitHub Container Registry |
-
-## Architecture
-
-The code is organized in layers. Each request flows top to bottom, and each layer only talks to the one below it.
-
-```
-HTTP request
-   │
-   ▼
-Router        routes, auth guard, file upload, Joi validation        (*.router.ts)
-   │
-   ▼
-Controller    reads the request, calls a service, shapes the response (*.controller.ts)
-   │
-   ▼
-Service       business rules; owns one collection                    (*.service.ts)
-   │
-   ├──► other services (never another module's model)
-   ├──► infrastructure via interfaces: IMailer, IImageStorage, IPaymentGateway, ...
-   ▼
-Mongoose model                                                       (DB/model)
-```
-
-Key ideas:
-
-- **Composition root**: [src/container.ts](src/container.ts) is the only place that creates objects and wires them together. Every class receives its dependencies through its constructor, so any of them can be replaced by a fake in tests.
-- **Dependency inversion**: services depend on interfaces in [src/core/contracts.ts](src/core/contracts.ts), not on Stripe, Cloudinary or Nodemailer directly. The concrete implementations live in [src/services](src/services). Stripe types never leave `PaymentService`.
-- **One owner per collection**: a service writes only its own collection. For example, `OrderService` reserves stock through `ProductService.reserveStock()` and marks a coupon used through `CouponService.setUsage()`.
-- **Base classes** in [src/core](src/core):
-  - `BaseRouter`: builds the Express router and provides the `authenticated()` and `adminOnly()` guards.
-  - `BaseController`: binds handlers and forwards async errors to the error handler.
-  - `BaseService`: `findOrFail`, `paginate`, `transaction` and other shared helpers.
-- **Errors**: services throw `AppError(message, status)`, and one global handler turns every error into the same JSON shape.
-
-## Project structure
+Full-stack online store: a **TypeScript/Express REST API** with **MongoDB**, and a **React (Vite)** frontend. Both apps live in this one repository and run together with Docker Compose.
 
 ```
 .
-├── index.ts                  # entry point: env check, start, graceful shutdown
-├── DB/
-│   ├── connection.ts         # MongoDB connection
-│   └── model/                # Mongoose schemas
-├── src/
-│   ├── app.ts                # Express app: middleware, routes, error handler
-│   ├── container.ts          # composition root (dependency wiring)
-│   ├── loadEnv.ts            # loads config/.env
-│   ├── core/                 # base classes, AppError, Env, interfaces
-│   ├── middleware/           # auth guard, Joi validator
-│   ├── services/             # Stripe, Cloudinary, email, JWT, hashing, uploads
-│   ├── modules/              # one folder per feature
-│   │   ├── auth/  brand/  cart/  category/  coupon/
-│   │   ├── order/  product/  reviews/  subcategory/  user/
-│   ├── types/                # shared types
-│   └── utils/                # pagination, query features, slug
-├── Dockerfile
-├── docker-compose.yml
+├── backend/                 # Express + TypeScript API          → backend/README.md (API reference)
+│   ├── src/  tests/  index.ts
+│   ├── package.json  package-lock.json  tsconfig.json
+│   └── Dockerfile  .dockerignore
+├── frontend/                # React + Vite client               → frontend/README.md
+│   ├── src/  public/  index.html  nginx/
+│   ├── package.json  package-lock.json  vite.config.ts
+│   └── Dockerfile  .dockerignore
+├── docker-compose.yml       # development stack (hot reload)
+├── docker-compose.prod.yml  # production-like stack (compiled backend + nginx)
+├── .env.example             # every setting, with safe placeholders
 └── .github/workflows/ci.yml
 ```
 
-Each module follows the same pattern: `x.router.ts`, `x.controller.ts`, `x.service.ts`, `x.validation.ts`.
+Each app has its own `package.json`, dependencies, Dockerfile and build. There is no npm workspace; `backend/` and `frontend/` can each be understood and built on their own.
 
-## Getting started
+---
 
-### Prerequisites
+## Quick start
 
-- Node.js 20
-- MongoDB **running as a replica set** (order creation uses transactions). MongoDB Atlas already is one. Locally, the Docker setup below provides one.
-- Accounts for Cloudinary, Stripe and a Gmail app password, if you want uploads, payments and email to work.
-
-### Option 1: Docker (recommended)
+Requirements: **Docker** with **Compose v2.24+** (Docker Desktop, or Docker Engine on Linux/WSL2). Node.js is not needed on your machine.
 
 ```bash
-cp .env.example config/.env      # then fill in real values
-docker compose up --build
+git clone <repository-url>
+cd <repository>
+cp .env.example .env          # then replace the placeholders (see "Configuration")
+docker compose build
+docker compose up
 ```
 
-The API runs on `http://localhost:5000`, and MongoDB runs as a single-node replica set on `localhost:27017`. To open the database from your machine (for example with Compass), use `mongodb://localhost:27017/ecommerce?directConnection=true`.
-
-### Option 2: Node directly
-
-```bash
-npm ci
-cp .env.example config/.env      # point DB_LOCAL at a replica set
-npm run dev                      # hot reload with tsx
-```
-
-### Scripts
-
-| Command | What it does |
+| What | URL |
 | --- | --- |
-| `npm run dev` | Start with hot reload (tsx) |
-| `npm run typecheck` | Type-check without emitting |
-| `npm run build` | Compile to `dist/` |
-| `npm start` | Run the compiled app |
+| Frontend | http://localhost:3000 |
+| API through the frontend (what the browser uses) | http://localhost:3000/api (e.g. http://localhost:3000/api/health) |
+| Backend, direct (Postman, Stripe CLI, email links in dev) | http://localhost:5000 |
+| Backend health | http://localhost:5000/health |
+| MongoDB (Compass, mongosh) | `mongodb://localhost:27017/ecommerce?replicaSet=rs0&directConnection=true` |
+
+The API itself is mounted at the root (`/auth`, `/product`, ...); the `/api` prefix exists only on the frontend's origin. Ports can be changed in `.env` (`FRONTEND_PORT`, `BACKEND_PORT`, `MONGO_HOST_PORT`).
+
+The app starts with placeholder secrets, but **sign-up emails, image uploads and payments only work with real Gmail/SMTP, Cloudinary and Stripe credentials** in `.env`.
+
+## Architecture
+
+### Development (`docker-compose.yml`)
+
+```
+Browser
+   │  http://localhost:3000            (page, JS, and /api/* calls: one origin, no CORS)
+   ▼
+frontend container ── Vite dev server, HMR
+   │  /api/* → http://backend:5000/*    (Vite proxy strips /api; Docker DNS, never seen by the browser)
+   ▼
+backend container ── tsx watch, published on localhost:5000 for direct access
+   │  mongodb://mongo:27017/ecommerce?replicaSet=rs0
+   ▼
+mongo container ── single-node replica set, named volume mongo_data, published on 127.0.0.1:27017 only
+```
+
+### Production (`docker-compose.prod.yml`)
+
+```
+Browser ──► frontend container (nginx, non-root, :3000 → 8080)
+               ├── /          static build (hash routing)
+               └── /api/*  →  backend container (compiled JS, non-root, not published)
+                                   └──► mongo (internal network only, not published)
+```
+
+In both stacks the browser never needs the Docker service name `backend`: it only talks to the frontend origin, and the frontend's server (Vite or nginx) forwards `/api` inside the Docker network. The backend's CORS allow-list (`CORS_ORIGINS`, default `FE_URL`) only matters for other browser clients calling the API directly.
+
+- **Startup order** is enforced with healthchecks, not just `depends_on`: MongoDB is healthy only once the replica set is initiated and has a writable primary; the backend is healthy once `GET /health` reports a live database connection; the frontend starts after that. If the backend still fails to connect it exits and `restart: unless-stopped` retries it.
+- **Transactions**: orders use MongoDB multi-document transactions, which require a replica set. The `mongo` service runs `--replSet rs0` and its healthcheck runs `rs.initiate()` on first boot. The replica-set config is stored in the volume, so later starts reuse it.
+- **Networks**: `web` (frontend ↔ backend) and `db` (backend ↔ mongo). The frontend has no route to the database. In production `db` is `internal: true`.
+- **Uploads**: multer writes to the container's `/tmp`, the file goes to Cloudinary, and the temp file is deleted when the response finishes. Nothing is stored locally, so no upload volume exists.
+
+## Development workflow
+
+`docker compose up` runs both apps in watch mode. Only the source is bind-mounted (`backend/src`, `backend/tests`, `frontend/src`, `frontend/public` and the root config files). `node_modules` always comes from the image, so Windows and Linux binaries never mix.
+
+- Edit `backend/src/**` and the API restarts within a few seconds (tsx watch).
+- Edit `frontend/src/**` and the browser updates in place (Vite HMR).
+- File watching uses polling (`WATCH_POLLING=true` in `.env`) because file-change events do not cross Windows/WSL bind mounts. On Linux/macOS, or with the repo inside the WSL filesystem, you can set it to `false`.
+- **After changing `package.json`** (adding or removing a dependency), rebuild: `docker compose up --build`.
+- Changes to `index.html`, `vite.config.ts`, `tsconfig.json` or `backend/index.ts` are picked up on save in most editors. If one is not, run `docker compose restart frontend` (or `backend`).
+
+### Common commands
+
+```bash
+docker compose up                       # start everything (foreground, logs in terminal)
+docker compose up -d                    # start in the background
+docker compose up --build               # rebuild images first (after dependency changes)
+docker compose build --no-cache         # full rebuild from scratch
+docker compose ps                       # status + health of each container
+docker compose logs -f                  # follow all logs
+docker compose logs -f backend          # follow one service (backend | frontend | mongo)
+docker compose restart backend          # restart one service
+docker compose down                     # stop and remove containers (database is kept)
+docker compose down -v                  # ...and DELETE the database volume (fresh start)
+```
+
+### Inside the containers
+
+```bash
+docker compose exec backend sh                      # shell in the backend container
+docker compose exec frontend sh                     # shell in the frontend container
+docker compose exec mongo mongosh ecommerce         # MongoDB shell
+
+docker compose exec backend npm test                # backend integration tests
+docker compose exec backend npm run typecheck       # backend type-check
+docker compose exec frontend npm run typecheck      # frontend type-check
+docker compose exec backend npm run migrate         # data/index migration (safe to re-run)
+docker compose exec backend npm run job:expire-orders   # one unpaid-order sweep
+```
+
+`npm test` starts its own throwaway in-memory MongoDB (it never touches your dev data). The first run downloads a MongoDB binary (about 100 MB), and it needs roughly 1 GB of free memory.
+
+### Database
+
+- **Persistence**: data lives in the named volume `mongo_data` and survives `docker compose down`, image rebuilds and container recreation. Only `docker compose down -v` deletes it.
+- **Reset**: `docker compose down -v && docker compose up` gives you an empty database.
+- **Migrations**: `docker compose exec backend npm run migrate` brings an existing database's data and indexes up to date. Mongoose also creates missing indexes when the app starts, so a fresh database needs nothing.
+- **Seeds**: the project has no seed script. To get an admin, sign up and confirm your email, then run:
+  ```bash
+  docker compose exec mongo mongosh ecommerce --eval 'db.users.updateOne({ email: "you@example.com" }, { $set: { role: "Admin" } })'
+  ```
+
+### Stripe webhooks in development
+
+```bash
+stripe listen --forward-to localhost:5000/order/webhook    # then put the printed whsec_... in endpointSecret
+```
+
+### Running without Docker
+
+Both apps also run directly with **Node.js 24** and read the same root `.env`. Start only the database with `docker compose up -d mongo`, then run `cd backend && npm ci && npm run dev` and `cd frontend && npm ci && npm run dev`. See [backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md).
 
 ## Configuration
 
-All configuration comes from environment variables, loaded from `config/.env`. [.env.example](.env.example) lists every variable with a placeholder. The app checks the required ones at startup and refuses to start if any are missing.
+Everything is configured through **one file: `.env` in the repository root**, created from [.env.example](.env.example). It is git-ignored, excluded from every Docker build context, and never copied into an image.
 
-| Variable | Purpose |
-| --- | --- |
-| `DB_LOCAL` | MongoDB connection string (replica set) |
-| `PORT` | HTTP port (default `5000`) |
-| `MOOD` | `DEV` adds stack traces to error responses |
-| `BEARER_KEY` | Prefix expected in the `Authorization` header |
-| `TOKEN_SIGNATURE` | JWT signing secret for login tokens |
-| `EMAIL_TOKEN` | JWT signing secret for email-confirmation links |
-| `SALT_ROUND` | bcrypt cost factor |
-| `gmail`, `gmailPass` | Sender account for Nodemailer |
-| `API_KEY`, `API_SECRET`, `CLOUD_NAME` | Cloudinary credentials |
-| `Secret_Key`, `endpointSecret` | Stripe secret key and webhook signing secret |
-| `FE_URL` | Frontend URL used in redirects and Stripe success URL |
-
-Never commit `config/.env`; it is ignored by git and excluded from the Docker image.
-
-## API reference
-
-**Auth header**: protected routes expect `Authorization: <BEARER_KEY><token>`. With `BEARER_KEY=Bearer__`, that is `Authorization: Bearer__eyJhbGci...`.
-
-**Access**: 🌐 public · 👤 any logged-in user · 🔒 admin only
-
-### Auth: `/auth`
-
-| Method | Path | Access | Description |
-| --- | --- | --- | --- |
-| POST | `/signup` | 🌐 | Create an account and send a confirmation email |
-| GET | `/confirmEmail/:token` | 🌐 | Confirm the email (link from the email) |
-| GET | `/NewConfirmEmail/:token` | 🌐 | Resend the confirmation email |
-| POST | `/login` | 🌐 | Returns a JWT and basic user info |
-| PATCH | `/sendCode` | 🌐 | Email a password-reset code |
-| PATCH | `/forgetPassword` | 🌐 | Reset the password using the code |
-| GET | `/` | 🌐 | List users (paginated) |
-
-### Catalog
-
-| Method | Path | Access | Description |
-| --- | --- | --- | --- |
-| GET | `/category` | 🌐 | List categories |
-| POST | `/category` | 🔒 | Create (multipart, `image` field) |
-| PUT | `/category/:categoryId` | 🔒 | Update |
-| DELETE | `/category` | 🔒 | Delete (`categoryId` in body) |
-| GET | `/subcategory` or `/category/:categoryId/subcategory` | 🌐 | List subcategories |
-| POST | `/category/:categoryId/subcategory` | 🔒 | Create |
-| PUT | `/category/:categoryId/subcategory/:subcategoryId` | 🔒 | Update |
-| GET | `/brand` | 🌐 | List brands |
-| POST | `/brand` | 🔒 | Create (multipart, `image` field) |
-| PUT | `/brand/:brandId` | 🔒 | Update |
-| DELETE | `/brand` | 🔒 | Delete |
-| GET | `/product` | 🌐 | List, filter, search, sort, paginate |
-| POST | `/product` | 🔒 | Create (multipart: `mainImage` ×1, `subImages` ≤5) |
-| PUT | `/product/:productId` | 🔒 | Update |
-
-### Shopping
-
-| Method | Path | Access | Description |
-| --- | --- | --- | --- |
-| GET | `/cart` | 👤 | Get my cart |
-| POST | `/cart` | 👤 | Add a product or set its quantity: `{ productId, quantity }` |
-| PATCH | `/cart/:productId/remove` | 👤 | Remove a product |
-| DELETE | `/cart/deleteCart` | 👤 | Empty the cart |
-| PATCH | `/product/:productId/wishlist/add` | 👤 | Add to wishlist |
-| PATCH | `/product/:productId/wishlist/remove` | 👤 | Remove from wishlist |
-| GET | `/coupon` | 🌐 | List coupons |
-| POST | `/coupon` | 🔒 | Create: `{ name, amount (1–100 %), expire }` |
-| PUT | `/coupon/:couponId` | 🔒 | Update |
-
-### Orders: `/order`
-
-| Method | Path | Access | Description |
-| --- | --- | --- | --- |
-| POST | `/` | 👤 | Create an order from the cart (see below) |
-| PATCH | `/:orderId/cancel` | 👤 | Cancel my order: `{ reason }` |
-| PATCH | `/:orderId/delivered` | 🔒 | Mark as delivered |
-| POST | `/webhook` | Stripe | Stripe webhook (signature-verified, raw body) |
-
-### Reviews: `/product/:productId/review`
-
-| Method | Path | Access | Description |
-| --- | --- | --- | --- |
-| POST | `/` | 👤 | Review a delivered product: `{ comment, rating (1–5) }` |
-| PATCH | `/` | 👤 | Update my review: `{ reviewId, comment?, rating? }` |
-
-### Listing query parameters
-
-`GET /product` supports:
-
-| Param | Example | Effect |
+| Section in `.env.example` | Read by | Notes |
 | --- | --- | --- |
-| `page`, `size` | `?page=2&size=20` | Pagination (size 1–100, default 10) |
-| `search` | `?search=shirt` | Case-insensitive match on name or description |
-| `sort` | `?sort=-finalPrice,name` | Sort; `-` for descending |
-| `fields` | `?fields=name,finalPrice` | Return only these fields |
-| any field | `?finalPrice[gte]=100&finalPrice[lte]=500` | Filter; supports `gt`, `gte`, `lt`, `lte` |
+| Docker Compose (`FRONTEND_PORT`, `BACKEND_PORT`, `MONGO_HOST_PORT`, `MONGO_VERSION`, `WATCH_POLLING`, `DOCKER_DB_LOCAL`) | `docker compose` | Host ports and dev tooling |
+| Backend (`DB_LOCAL`, `TOKEN_SIGNATURE`, email, Cloudinary, Stripe, `FE_URL`, `CORS_ORIGINS`, ...) | backend container (`env_file`) or `npm run dev` on the host | Full list: [backend/README.md](backend/README.md#configuration). Startup fails fast if a required one is missing |
+| Frontend (`VITE_API_BASE_URL`, `VITE_BEARER_KEY`) | Vite, at build time | Compiled into public JavaScript, so never put secrets here. The frontend container gets no backend secrets |
 
-Other list endpoints support `page` and `size`. Every paginated response includes:
+Inside Docker, the compose files set the container-specific values themselves and override `.env`:
 
-```json
-{ "pagination": { "page": 1, "size": 10, "total": 42, "totalPages": 5, "hasNextPage": true, "hasPrevPage": false } }
+| Variable | Development stack | Production stack |
+| --- | --- | --- |
+| `DB_LOCAL` | `mongodb://mongo:27017/ecommerce?replicaSet=rs0` (or `DOCKER_DB_LOCAL`) | same |
+| `MOOD` | `DEV` (stack traces in error responses) | `PROD` |
+| `FE_URL` | `http://localhost:${FRONTEND_PORT}` | `FE_URL` from `.env` |
+| `API_PUBLIC_URL` (links in emails) | `http://localhost:${BACKEND_PORT}` | `${FE_URL}/api` |
+| `TRUST_PROXY` | unset | `1` (exactly one proxy: nginx) |
+| `VITE_BEARER_KEY` | from `BEARER_KEY` | from `BEARER_KEY` (build arg) |
+
+## Production build
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build      # http://localhost:3000
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs -f backend
+docker compose -f docker-compose.prod.yml exec backend node dist/src/scripts/migrate.js
+docker compose -f docker-compose.prod.yml down               # add -v to delete its database
 ```
 
-## Order and payment flow
+This stack builds the `production` targets: the backend is compiled with `tsc` and runs `node dist/index.js` with production dependencies only, and the frontend is a static Vite build served by nginx, which also proxies `/api`. Both run as non-root users. Only nginx is published. It is a separate Compose project (`ecommerce-prod`) with its own database volume, so it never touches your development data.
 
-```
-Cart ──POST /order──► validate coupon + price items
-                         │
-                         ▼
-        ┌──────── one MongoDB transaction ────────┐
-        │ reserve stock (only if enough is left)  │
-        │ create order                            │
-        │ mark coupon used                        │
-        │ remove ordered items from cart          │
-        └─────────────────────────────────────────┘
-                         │
-          cash ──────────┴────────── card
-           │                          │
-     status: placed          status: waitPayment
-                             Stripe Checkout session → client redirects to session.url
-                                      │
-                         webhook: checkout.session.completed → placed
-                         webhook: checkout.session.expired   → rejected + stock & coupon returned
-```
+For a real deployment:
 
-Order statuses: `waitPayment` → `placed` → `onWay` → `delivered`, or `canceled` / `rejected`.
+- Set real secrets and your public `FE_URL` (e.g. `https://shop.example.com`) in the server's `.env`. Email links then use `https://shop.example.com/api/...`, and Stripe should call `https://shop.example.com/api/order/webhook`.
+- Put TLS in front of nginx (a load balancer or reverse proxy). If you add another proxy layer, raise `TRUST_PROXY` to match.
+- Prefer a managed, authenticated MongoDB replica set (e.g. Atlas) via `DOCKER_DB_LOCAL`. The bundled `mongo` service has no authentication and is only safe because it sits on an internal network.
+- CI publishes both images to GHCR (`ghcr.io/<owner>/<repo>/backend` and `.../frontend`) on every push to `main`.
 
-- **Cancel**: a cash order can be cancelled while `placed`, and a card order while `waitPayment`. Cancelling returns the stock and coupon.
-- **Oversell protection**: stock is decremented with a conditional update, so two simultaneous orders cannot take the last item twice.
-- **Idempotency**: send a unique `Idempotency-Key` header (for example a UUID) with `POST /order`, and reuse it when retrying. A retry with the same key returns the original order and payment link with status `200` and the header `Idempotent-Replayed: true`. Stripe calls are also keyed by order ID, so a retry never creates a second checkout session.
-- **Webhooks are idempotent**: they only change orders still in `waitPayment`, so a repeated event is a no-op.
-
-In Stripe, point the webhook at `POST /order/webhook` and subscribe to `checkout.session.completed` and `checkout.session.expired`.
-
-## Conventions
-
-### Error format
-
-Every error has the same shape:
-
-```json
-{ "message": "Validation Error", "errors": [{ "field": "email", "message": "Email is required" }] }
-```
-
-`errors` appears only for validation failures. With `MOOD=DEV`, the response also includes the stack trace.
-
-| Status | Meaning |
-| --- | --- |
-| 400 | Invalid input or a business rule failed |
-| 401 | Missing, invalid or expired token |
-| 403 | Logged in but not allowed (wrong role) |
-| 404 | Resource or route not found |
-| 409 | Conflict (duplicate name, concurrent change) |
-| 502 | Payment provider failed |
-
-### Adding a new module
-
-1. Create `src/modules/<name>/` with a router, controller, service and validation file.
-2. Extend `BaseRouter`, `BaseController` and `BaseService`.
-3. Have the service depend on other **services** or **interfaces**, not on other modules' models.
-4. Wire it up and mount its route in [src/container.ts](src/container.ts).
+Building a single image directly: `docker build --target production -t ecommerce-backend ./backend` (or `./frontend`). The frontend accepts `--build-arg VITE_BEARER_KEY=...`.
 
 ## CI/CD
 
 [.github/workflows/ci.yml](.github/workflows/ci.yml) runs on every push and pull request to `main`:
 
-1. **Check**: install, type-check, build, and a report-only `npm audit`.
-2. **Docker smoke test**: build the image, start it with MongoDB through Docker Compose, and check that `/` returns 200, an unknown route returns 404, and a protected route without a token returns 401.
-3. **Publish** (push to `main` only): push the image to `ghcr.io/<owner>/<repo>`, tagged with the commit SHA and `latest`.
+1. **Backend**: `npm ci`, type-check, integration tests, build, `npm audit` (production dependencies, high or critical).
+2. **Frontend**: `npm ci`, type-check and production build, `npm audit`.
+3. **Docker**: validate both compose files, build the development and production images, start the production stack, and smoke-test it through nginx. The test checks that the app loads, that `/api/health` is ok (backend connected to MongoDB), that unknown routes return 404 and protected routes 401, and that the backend and MongoDB are not published.
+4. **Publish** (push to `main` only): push both production images to GHCR, tagged with the short commit SHA and `latest`.
 
-The Docker image is a multi-stage build that runs as a non-root user, includes a healthcheck, and shuts down cleanly on `SIGTERM`.
+## Troubleshooting
+
+- **`env file .env not found`**: run `cp .env.example .env`.
+- **`Missing environment variables: ...`** in the backend logs: a required value in `.env` is empty.
+- **Port already in use**: change `FRONTEND_PORT` / `BACKEND_PORT` / `MONGO_HOST_PORT` in `.env`. The dev stack derives `FE_URL` from `FRONTEND_PORT` automatically.
+- **Hot reload does nothing**: keep `WATCH_POLLING=true` (the default), which is needed when the repo is on a Windows drive.
+- **New dependency not found in the container**: `docker compose up --build`.
+- **Compass cannot connect**: add `directConnection=true` to the connection string. The replica-set member is named `mongo:27017`, which only resolves inside Docker.

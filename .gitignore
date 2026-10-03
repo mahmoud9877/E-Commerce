@@ -1,6 +1,26 @@
-config
-node_modules
-dist
+# Dependencies
+node_modules/
+
+# Build output / test artifacts
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment and secrets (only the template is committed)
 .env
 .env.*
 !.env.example
+# Legacy location of the backend env file
+/config/
+/backend/config/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Local tool state
+.vercel/
+.DS_Store
+Thumbs.db
