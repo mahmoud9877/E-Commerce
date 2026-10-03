@@ -1,0 +1,18 @@
+# Dependencies and build output are produced inside the image
+node_modules
+dist
+coverage
+
+# Secrets and local config never enter the build context
+.env
+.env.*
+!.env.example
+
+# Tooling / editor / VCS noise
+.git
+.vscode
+.idea
+*.log
+npm-debug.log*
+Dockerfile
+.dockerignore

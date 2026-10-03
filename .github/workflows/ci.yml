@@ -15,31 +15,59 @@ permissions:
   contents: read
 
 jobs:
-  # ---- CI: compile and check the code
-  check:
-    name: Typecheck & build
+  # ---- Backend: typecheck, integration tests, compile
+  backend:
+    name: Backend - typecheck, test & build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20.10.0"
+          node-version: "24"
           cache: npm
+          cache-dependency-path: backend/package-lock.json
 
       - run: npm ci
       - run: npm run typecheck
+      # Integration tests against an in-memory MongoDB replica set; external services are faked
+      - run: npm test
       - run: npm run build
 
-      # Report-only until the flagged dependencies are upgraded; switch off continue-on-error afterwards
+      # Fails the build on any high or critical vulnerability in production dependencies
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
 
-  # ---- Build the image, boot it against a real MongoDB replica set, then publish
+  # ---- Frontend: typecheck + production bundle
+  frontend:
+    name: Frontend - typecheck & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      # `build` runs the typecheck first
+      - run: npm run build
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  # ---- Build every image, boot the production stack, smoke test it through nginx, then publish
   docker:
-    name: Docker build, smoke test & publish
-    needs: check
+    name: Docker - build, smoke test & publish
+    needs: [backend, frontend]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,53 +75,48 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: ecommerce-api:local
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       # Placeholder values from .env.example: startup only checks they exist; external services are not called
       - name: Create env file from template
-        run: |
-          mkdir -p config
-          cp .env.example config/.env
+        run: cp .env.example .env
 
-      - name: Start stack
-        run: docker compose up -d --no-build --wait --wait-timeout 120
+      - name: Validate compose files
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.prod.yml config --quiet
+
+      # Development targets must keep building too (they are what `docker compose up` runs)
+      - name: Build development images
+        run: docker compose build
+
+      - name: Build production images
+        run: docker compose -f docker-compose.prod.yml build
+
+      - name: Start production stack
+        run: docker compose -f docker-compose.prod.yml up -d --no-build --wait --wait-timeout 180
 
       - name: Smoke test
         run: |
-          curl --fail --silent --show-error http://localhost:5000/
+          # nginx serves the app...
+          curl --fail --silent --show-error http://localhost:3000/ | grep -q '<div id="root">'
+          # ...and proxies /api to the backend, which is connected to MongoDB
+          curl --fail --silent --show-error http://localhost:3000/api/health | grep -q '"ok"'
           # Unknown routes must return the JSON 404, proving routing and error handling are wired
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/does-not-exist)" = "404"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/does-not-exist)" = "404"
           # Protected routes must reject anonymous requests
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/cart)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/cart)" = "401"
+          # The backend and MongoDB must not be published in the production stack
+          ! curl -s -m 3 http://localhost:5000/health
+          ! (exec 3<>/dev/tcp/127.0.0.1/27017) 2>/dev/null
 
       - name: Logs on failure
         if: failure()
-        run: docker compose logs
+        run: docker compose -f docker-compose.prod.yml logs
 
       - name: Stop stack
         if: always()
-        run: docker compose down -v
+        run: docker compose -f docker-compose.prod.yml down -v
 
-      # ---- CD: publish the image on every push to main
-      - name: Image metadata
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=sha,prefix=
-            type=raw,value=latest
-
+      # ---- CD: publish both production images on every push to main
       - name: Log in to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
@@ -102,12 +125,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push image
+      - name: Push images
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+        run: |
+          repo="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          for app in backend frontend; do
+            for tag in "${GITHUB_SHA::7}" latest; do
+              docker tag "ecommerce-$app:prod" "$repo/$app:$tag"
+              docker push "$repo/$app:$tag"
+            done
+          done
