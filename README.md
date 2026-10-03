@@ -125,10 +125,7 @@ docker compose exec backend npm run job:expire-orders   # one unpaid-order sweep
 - **Persistence**: data lives in the named volume `mongo_data` and survives `docker compose down`, image rebuilds and container recreation. Only `docker compose down -v` deletes it.
 - **Reset**: `docker compose down -v && docker compose up` gives you an empty database.
 - **Migrations**: `docker compose exec backend npm run migrate` brings an existing database's data and indexes up to date. Mongoose also creates missing indexes when the app starts, so a fresh database needs nothing.
-- **Seeds**: the project has no seed script. To get an admin, sign up and confirm your email, then run:
-  ```bash
-  docker compose exec mongo mongosh ecommerce --eval 'db.users.updateOne({ email: "you@example.com" }, { $set: { role: "Admin" } })'
-  ```
+- **Seeds**: set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env`, then run `docker compose exec backend npm run seed:admin`. It creates a confirmed Admin account you can log in with right away. Re-running it is safe: an existing account with that email is promoted to Admin and its password reset to `ADMIN_PASSWORD`. Compose reads `.env` only when a container is created, so after editing it run `docker compose up -d` first.
 
 ### Stripe webhooks in development
 
@@ -146,7 +143,7 @@ Everything is configured through **one file: `.env` in the repository root**, cr
 
 | Section in `.env.example` | Read by | Notes |
 | --- | --- | --- |
-| Docker Compose (`FRONTEND_PORT`, `BACKEND_PORT`, `MONGO_HOST_PORT`, `MONGO_VERSION`, `WATCH_POLLING`, `DOCKER_DB_LOCAL`) | `docker compose` | Host ports and dev tooling |
+| Docker Compose (`FRONTEND_PORT`, `BACKEND_PORT`, `MONGO_HOST_PORT`, `MONGO_VERSION`, `MONGO_DB_NAME`, `MONGO_REPLICA_SET`, `NODE_VERSION`, `NGINX_VERSION`, `WATCH_POLLING`, `DOCKER_DB_LOCAL`) | `docker compose` | Host ports and dev tooling |
 | Backend (`DB_LOCAL`, `TOKEN_SIGNATURE`, email, Cloudinary, Stripe, `FE_URL`, `CORS_ORIGINS`, ...) | backend container (`env_file`) or `npm run dev` on the host | Full list: [backend/README.md](backend/README.md#configuration). Startup fails fast if a required one is missing |
 | Frontend (`VITE_API_BASE_URL`, `VITE_BEARER_KEY`) | Vite, at build time | Compiled into public JavaScript, so never put secrets here. The frontend container gets no backend secrets |
 

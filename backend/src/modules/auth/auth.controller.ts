@@ -28,6 +28,8 @@ export class AuthController extends BaseController {
   }
 
   async signup(req: Request, res: Response) {
+    console.log("signup request body:", req.body);
+
     const _id = await this.authService.signup(req.body, BaseController.baseUrl(req));
     return res.status(201).json({ message: "Done", _id });
   }

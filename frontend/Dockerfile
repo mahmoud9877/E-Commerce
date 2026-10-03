@@ -3,6 +3,7 @@
 #   production   - static build served by nginx (non-root), which also proxies /api to the backend
 #                  (default target)
 ARG NODE_VERSION=24
+ARG NGINX_VERSION=1.28
 
 # ---------------------------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-alpine AS deps
@@ -33,7 +34,7 @@ RUN npm run build
 
 # ---------------------------------------------------------------------------------------------
 # nginx-unprivileged runs as uid 101 and listens on 8080 (no root, no privileged port)
-FROM nginxinc/nginx-unprivileged:1.28-alpine AS production
+FROM nginxinc/nginx-unprivileged:${NGINX_VERSION}-alpine AS production
 # Rendered into the nginx config at container start by the image's envsubst entrypoint
 ENV BACKEND_URL=http://backend:5000 \
     NGINX_RESOLVER=127.0.0.11

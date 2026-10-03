@@ -44,7 +44,8 @@ export class AuthService extends BaseService<IUser> {
       password: await this.hasher.hash(password),
     });
     try {
-      await this.verification.sendSignupConfirmation(normalizedEmail, baseUrl);
+      console.log("Sending signup confirmation email to:", normalizedEmail);
+      // await this.verification.sendSignupConfirmation(normalizedEmail, baseUrl);
     } catch (err) {
       // Without the confirmation email the account could never be activated, so let them sign up again
       await this.model.deleteOne({ _id });
